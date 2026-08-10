@@ -1,0 +1,67 @@
+.dashboard-container {
+  padding: 40px;
+  font-family: sans-serif;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.dashboard-header {
+  border-bottom: 2px solid #E5E7EB;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  color: #111827;
+}
+
+.dashboard-header p {
+  color: #6B7280;
+  margin-top: 8px;
+}
+
+.space-list {
+  list-style: none;
+  padding: 0;
+}
+
+.space-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  margin-bottom: 15px;
+  background-color: #F9FAFB;
+}
+
+.space-card h3 {
+  margin: 0 0 8px 0;
+  color: #111827;
+}
+
+.space-card p {
+  margin: 0 0 8px 0;
+  color: #4B5563;
+}
+
+.space-card small {
+  color: #9CA3AF;
+}
+
+.approve-button {
+  background-color: #00C853;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.approve-button:hover {
+  background-color: #00A040;
+}
