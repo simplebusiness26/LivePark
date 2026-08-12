@@ -21,16 +21,41 @@ CREATE TABLE users (
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
 
+-- Helper function to prevent infinite recursion when checking admin role
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+  SELECT role = 'admin' FROM users WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
+
 -- Enable RLS
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can insert their own profile"
+ON users FOR INSERT
+WITH CHECK (auth.uid() = id AND role IN ('driver', 'host')); -- Prevent inserting admin
 
 CREATE POLICY "Users can view their own profile"
 ON users FOR SELECT
 USING (auth.uid() = id);
 
-CREATE POLICY "Users can update their own profile"
+-- Prevent mass assignment by restricting the columns they can update
+CREATE POLICY "Users can update their own non-sensitive profile data"
 ON users FOR UPDATE
-USING (auth.uid() = id);
+USING (auth.uid() = id)
+WITH CHECK (
+  role = (SELECT role FROM users WHERE id = auth.uid()) AND
+  is_verified = (SELECT is_verified FROM users WHERE id = auth.uid()) AND
+  stripe_customer_id IS NOT DISTINCT FROM (SELECT stripe_customer_id FROM users WHERE id = auth.uid()) AND
+  stripe_connect_account_id IS NOT DISTINCT FROM (SELECT stripe_connect_account_id FROM users WHERE id = auth.uid())
+);
+
+CREATE POLICY "Admins can view all users"
+ON users FOR SELECT
+USING (public.is_admin());
+
+CREATE POLICY "Admins can update all users"
+ON users FOR UPDATE
+USING (public.is_admin());
 
 -- 2. Table: parking_spaces
 CREATE TABLE parking_spaces (
@@ -61,6 +86,9 @@ CREATE INDEX idx_active_live ON parking_spaces(is_active, live_intent_status);
 -- Enable RLS
 ALTER TABLE parking_spaces ENABLE ROW LEVEL SECURITY;
 
+-- Enable Realtime for parking spaces
+ALTER PUBLICATION supabase_realtime ADD TABLE parking_spaces;
+
 CREATE POLICY "Public can view active spaces"
 ON parking_spaces FOR SELECT
 USING (is_active = true OR auth.uid() = host_id);
@@ -71,8 +99,16 @@ WITH CHECK (auth.uid() = host_id);
 
 CREATE POLICY "Hosts can update their own spaces"
 ON parking_spaces FOR UPDATE
-USING (auth.uid() = host_id);
+USING (auth.uid() = host_id)
+WITH CHECK (is_active = (SELECT is_active FROM parking_spaces WHERE id = parking_spaces.id) OR public.is_admin());
 
+CREATE POLICY "Admins can view all spaces"
+ON parking_spaces FOR SELECT
+USING (public.is_admin());
+
+CREATE POLICY "Admins can update all spaces"
+ON parking_spaces FOR UPDATE
+USING (public.is_admin());
 
 -- 3. Table: bookings
 CREATE TABLE bookings (
@@ -102,13 +138,94 @@ CREATE POLICY "Users can view their own bookings"
 ON bookings FOR SELECT
 USING (auth.uid() = driver_id OR auth.uid() IN (SELECT host_id FROM parking_spaces WHERE id = parking_space_id));
 
-CREATE POLICY "Drivers can create bookings"
-ON bookings FOR INSERT
-WITH CHECK (auth.uid() = driver_id);
-
-CREATE POLICY "Involved parties can update bookings"
+-- Prevent drivers from mass-assigning financial values by restricting updates
+CREATE POLICY "Drivers can only update status to complete"
 ON bookings FOR UPDATE
-USING (auth.uid() = driver_id OR auth.uid() IN (SELECT host_id FROM parking_spaces WHERE id = parking_space_id));
+USING (auth.uid() = driver_id)
+WITH CHECK (
+  status IN ('completed', 'cancelled') AND
+  total_amount_gbp = (SELECT total_amount_gbp FROM bookings WHERE id = bookings.id) AND
+  platform_fee_gbp = (SELECT platform_fee_gbp FROM bookings WHERE id = bookings.id) AND
+  host_payout_gbp = (SELECT host_payout_gbp FROM bookings WHERE id = bookings.id) AND
+  parking_space_id = (SELECT parking_space_id FROM bookings WHERE id = bookings.id) AND
+  driver_id = (SELECT driver_id FROM bookings WHERE id = bookings.id)
+);
+
+CREATE POLICY "Hosts can view their bookings"
+ON bookings FOR UPDATE
+USING (auth.uid() IN (SELECT host_id FROM parking_spaces WHERE id = parking_space_id));
+
+CREATE POLICY "Admins can view all bookings"
+ON bookings FOR SELECT
+USING (public.is_admin());
+
+CREATE POLICY "Admins can update all bookings"
+ON bookings FOR UPDATE
+USING (public.is_admin());
+
+-- RPC to securely book AND claim a parking space atomically
+CREATE OR REPLACE FUNCTION public.book_and_claim_space(p_space_id UUID, p_driver_id UUID)
+RETURNS UUID AS $$
+DECLARE
+  v_is_active BOOLEAN;
+  v_live_intent VARCHAR(50);
+  v_hourly_rate DECIMAL;
+  v_platform_fee DECIMAL;
+  v_host_payout DECIMAL;
+  v_booking_id UUID;
+BEGIN
+  -- Validate driver identity
+  IF auth.uid() != p_driver_id THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  -- 1. Lock the parking space to prevent race conditions
+  SELECT is_active, live_intent_status, hourly_rate_gbp
+  INTO v_is_active, v_live_intent, v_hourly_rate
+  FROM parking_spaces
+  WHERE id = p_space_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Space not found';
+  END IF;
+
+  IF NOT v_is_active OR v_live_intent != 'available_now' THEN
+    RAISE EXCEPTION 'Space is no longer available';
+  END IF;
+
+  -- 2. Securely claim the space
+  UPDATE parking_spaces
+  SET live_intent_status = 'offline'
+  WHERE id = p_space_id;
+
+  -- 3. Calculate accurate pricing securely on the server
+  v_platform_fee := v_hourly_rate * 0.15;
+  v_host_payout := v_hourly_rate - v_platform_fee;
+
+  -- 4. Create the booking record
+  INSERT INTO bookings (
+    parking_space_id,
+    driver_id,
+    status,
+    start_time,
+    end_time,
+    total_amount_gbp,
+    platform_fee_gbp,
+    host_payout_gbp
+  ) VALUES (
+    p_space_id,
+    p_driver_id,
+    'pending_hold',
+    NOW(),
+    NOW() + INTERVAL '1 hour',
+    v_hourly_rate,
+    v_platform_fee,
+    v_host_payout
+  ) RETURNING id INTO v_booking_id;
+
+  RETURN v_booking_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 
 -- 4. Table: payments
@@ -133,6 +250,10 @@ ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own payments"
 ON payments FOR SELECT
 USING (auth.uid() IN (SELECT driver_id FROM bookings WHERE id = booking_id) OR auth.uid() IN (SELECT host_id FROM parking_spaces WHERE id IN (SELECT parking_space_id FROM bookings WHERE id = booking_id)));
+
+CREATE POLICY "Admins can view all payments"
+ON payments FOR SELECT
+USING (public.is_admin());
 
 
 -- 5. Table: reviews
@@ -212,3 +333,7 @@ USING (auth.uid() = raised_by_id OR auth.uid() IN (SELECT driver_id FROM booking
 CREATE POLICY "Involved parties can raise disputes"
 ON disputes FOR INSERT
 WITH CHECK (auth.uid() = raised_by_id);
+
+CREATE POLICY "Admins can view and update all disputes"
+ON disputes FOR ALL
+USING (public.is_admin());

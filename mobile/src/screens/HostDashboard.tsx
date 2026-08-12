@@ -14,6 +14,7 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [isLive, setIsLive] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isActive, setIsActive] = useState(false); // To show if it's approved
 
   useEffect(() => {
     fetchSpace();
@@ -23,7 +24,7 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
     if (!user) return;
     const { data, error } = await supabase
       .from('parking_spaces')
-      .select('id, live_intent_status')
+      .select('id, live_intent_status, is_active')
       .eq('host_id', user.id)
       .single();
 
@@ -32,6 +33,7 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
     } else if (data) {
       setSpaceId(data.id);
       setIsLive(data.live_intent_status === 'available_now');
+      setIsActive(data.is_active);
     }
     setLoading(false);
   };
@@ -45,14 +47,19 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
-    const newStatus = isLive ? 'offline' : 'available_now';
-    const newActiveState = !isLive; // true if making available
+    if (!isActive) {
+      Alert.alert('Pending Approval', 'Your space must be approved by an admin before you can broadcast.');
+      return;
+    }
 
+    const newStatus = isLive ? 'offline' : 'available_now';
+
+    // IMPORTANT: Hosts should NOT toggle is_active. That is for admins.
+    // They only toggle live_intent_status.
     const { error } = await supabase
       .from('parking_spaces')
       .update({
-        live_intent_status: newStatus,
-        is_active: newActiveState
+        live_intent_status: newStatus
       })
       .eq('id', spaceId);
 
@@ -80,6 +87,12 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      {spaceId && !isActive && (
+        <View style={styles.pendingCard}>
+          <Text style={styles.pendingText}>Your space is pending admin approval.</Text>
+        </View>
+      )}
+
       <View style={styles.statusCard}>
         <Text style={styles.statusTitle}>Active Status</Text>
         <Text style={[styles.statusText, { color: isLive ? '#00C853' : '#6B7280' }]}>
@@ -88,8 +101,13 @@ export const HostDashboard: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <TouchableOpacity
-        style={[styles.primaryButton, isLive && styles.primaryButtonActive]}
+        style={[
+          styles.primaryButton,
+          isLive && styles.primaryButtonActive,
+          (!isActive || !spaceId) && styles.primaryButtonDisabled
+        ]}
         onPress={toggleLiveIntent}
+        disabled={!isActive || !spaceId}
       >
         <Text style={styles.primaryButtonText}>
           {isLive ? 'Stop Broadcasting' : 'LEAVING NOW'}
@@ -137,6 +155,18 @@ const styles = StyleSheet.create({
     color: '#FF3D00',
     fontWeight: '600',
   },
+  pendingCard: {
+    backgroundColor: '#FEF3C7',
+    padding: 15,
+    borderRadius: 8,
+    width: '100%',
+    marginBottom: 20,
+  },
+  pendingText: {
+    color: '#92400E',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   statusCard: {
     backgroundColor: '#FFFFFF',
     padding: 20,
@@ -177,6 +207,11 @@ const styles = StyleSheet.create({
   primaryButtonActive: {
     backgroundColor: '#FF3D00',
     shadowColor: '#FF3D00',
+  },
+  primaryButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+    shadowColor: 'transparent',
+    elevation: 0,
   },
   primaryButtonText: {
     color: '#FFFFFF',

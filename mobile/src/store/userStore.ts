@@ -11,7 +11,7 @@ interface UserState {
   signOut: () => Promise<void>;
 }
 
-export const useUserStore = create<UserState>((set) => ({
+export const useUserStore = create<UserState>()((set) => ({
   session: null,
   user: null,
   role: null,

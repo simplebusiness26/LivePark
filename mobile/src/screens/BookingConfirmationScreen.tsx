@@ -42,27 +42,11 @@ export const BookingConfirmationScreen: React.FC<Props> = ({ route, navigation }
     if (!user) return;
     setBooking(true);
 
-    const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // Default 1 hour
-
-    const hourlyRate = space.hourly_rate_gbp;
-    const platformFee = hourlyRate * 0.15; // 15% platform fee
-    const hostPayout = hourlyRate - platformFee;
-
-    const { data: bookingData, error: bookingError } = await supabase
-      .from('bookings')
-      .insert({
-        parking_space_id: space.id,
-        driver_id: user.id,
-        status: 'pending_hold',
-        start_time: startTime.toISOString(),
-        end_time: endTime.toISOString(),
-        total_amount_gbp: hourlyRate,
-        platform_fee_gbp: platformFee,
-        host_payout_gbp: hostPayout,
-      })
-      .select('id')
-      .single();
+    // Call unified atomic RPC to safely lock row, calculate pricing, insert booking, and set space offline
+    const { data: bookingId, error: bookingError } = await supabase.rpc('book_and_claim_space', {
+      p_space_id: space.id,
+      p_driver_id: user.id
+    });
 
     if (bookingError) {
       Alert.alert('Booking Failed', bookingError.message);
@@ -70,15 +54,9 @@ export const BookingConfirmationScreen: React.FC<Props> = ({ route, navigation }
       return;
     }
 
-    // Simultaneously transition space to offline (mocking the transaction lock)
-    await supabase
-      .from('parking_spaces')
-      .update({ live_intent_status: 'offline', is_active: false })
-      .eq('id', space.id);
-
     Alert.alert('Hold Secured', 'Proceeding to active session.');
     setBooking(false);
-    navigation.replace('ActiveSession', { bookingId: bookingData.id });
+    navigation.replace('ActiveSession', { bookingId: bookingId });
   };
 
   if (loading || !space) {
