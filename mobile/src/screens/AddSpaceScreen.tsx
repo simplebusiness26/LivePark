@@ -53,16 +53,16 @@ export const AddSpaceScreen: React.FC<Props> = ({ navigation }) => {
       <Text style={styles.header}>Add Your Driveway</Text>
 
       <Text style={styles.label}>Listing Title</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Secure Victorian Driveway" />
+      <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Secure Victorian Driveway" placeholderTextColor="#9CA3AF" />
 
       <Text style={styles.label}>Address Line 1</Text>
-      <TextInput style={styles.input} value={addressLine1} onChangeText={setAddressLine1} placeholder="123 Main St" />
+      <TextInput style={styles.input} value={addressLine1} onChangeText={setAddressLine1} placeholder="123 Main St" placeholderTextColor="#9CA3AF" />
 
       <Text style={styles.label}>City</Text>
-      <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="London" />
+      <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="London" placeholderTextColor="#9CA3AF" />
 
       <Text style={styles.label}>Postcode</Text>
-      <TextInput style={styles.input} value={postcode} onChangeText={setPostcode} placeholder="SW1A 1AA" />
+      <TextInput style={styles.input} value={postcode} onChangeText={setPostcode} placeholder="SW1A 1AA" placeholderTextColor="#9CA3AF" />
 
       <Text style={styles.label}>Hourly Rate (£)</Text>
       <TextInput
@@ -70,6 +70,7 @@ export const AddSpaceScreen: React.FC<Props> = ({ navigation }) => {
         value={hourlyRate}
         onChangeText={setHourlyRate}
         placeholder="3.50"
+        placeholderTextColor="#9CA3AF"
         keyboardType="decimal-pad"
       />
 
@@ -110,5 +111,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     marginBottom: 20,
     backgroundColor: '#FFFFFF',
+    color: '#111827',
   },
 });
