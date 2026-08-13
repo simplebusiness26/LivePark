@@ -16,11 +16,12 @@
 * Implemented Supabase migrations schema (`00000000000000_initial_schema.sql`) with PostGIS support.
 * Set up user authentication (Driver/Host split) using Supabase and Zustand.
 * Built Host screens for adding spaces and broadcasting Live Intent ("Leaving Now").
-* Built Driver map interface using `react-native-maps` and Supabase Realtime subscriptions.
+* Built Driver map interface using MapLibre, OpenStreetMap raster tiles, and Supabase Realtime subscriptions.
 * Built Booking flow (hold reservation, mock transaction, start active session).
 * Integrated Driver and Host screens into functional navigation flows in `App.tsx`.
 * Built Admin Web Panel for approving pending space listings.
 * Ran TypeScript compiler checks on both `mobile` and `admin` to verify basic type safety.
+* Added a GitHub Actions workflow that runs after every commit pushed to the Stage 1 branch, validates Expo 57 dependencies, type-checks, builds a release APK, stores it as an artifact, and publishes a direct-download prerelease.
 
 ## Current Stage
 * Moving to **Submission**.
@@ -32,7 +33,7 @@
 
 ## Required External Configuration
 * **Stripe:** Requires Stripe API Keys to be configured in Supabase Edge Functions.
-* **Mapbox:** Replace default map provider with Mapbox Access Token for custom clustering/rendering.
+* **Map tiles:** The MVP uses OpenStreetMap raster tiles; production traffic should use an appropriate hosted tile service and follow its usage policy.
 * **Supabase:** Configure Production URL and Anon Key in environment variables (`.env`).
 * **Supabase Webhooks:** Need to connect PostgreSQL DB changes to FCM push notification dispatch.
 
