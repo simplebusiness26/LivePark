@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapLibreGL, { MapView, Camera, ShapeSource, CircleLayer } from '@maplibre/maplibre-react-native';
 import { supabase } from '../lib/supabase';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useUserStore } from '../store/userStore';
@@ -16,6 +16,27 @@ interface ParkingSpace {
   title: string;
   hourly_rate_gbp: number;
 }
+
+const OSM_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: 'osm',
+      type: 'raster',
+      source: 'osm',
+    },
+  ],
+};
 
 export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
   const [spaces, setSpaces] = useState<ParkingSpace[]>([]);
@@ -61,25 +82,55 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
     setSelectedSpace(space);
   };
 
+  const features = {
+    type: 'FeatureCollection',
+    features: spaces.map((space) => ({
+      type: 'Feature',
+      id: space.id,
+      geometry: {
+        type: 'Point',
+        coordinates: [space.longitude, space.latitude],
+      },
+      properties: {
+        ...space,
+      },
+    })),
+  };
+
   return (
     <View style={styles.container}>
       <MapView
         style={styles.map}
-        initialRegion={{
-          latitude: 51.5074, // Default to London
-          longitude: -0.1278,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        }}
+        mapStyle={JSON.stringify(OSM_STYLE)}
+        logoEnabled={false}
       >
-        {spaces.map((space) => (
-          <Marker
-            key={space.id}
-            coordinate={{ latitude: space.latitude, longitude: space.longitude }}
-            onPress={() => handleMarkerPress(space)}
-            pinColor="#00C853" // Emerald green for available spaces
+        <Camera
+          defaultSettings={{
+            centerCoordinate: [-0.1278, 51.5074], // London
+            zoomLevel: 12,
+          }}
+        />
+
+        <ShapeSource
+          id="parkingSpaces"
+          shape={features as any}
+          onPress={(event: any) => {
+            const feature = event.features[0];
+            if (feature && feature.properties) {
+              handleMarkerPress(feature.properties as ParkingSpace);
+            }
+          }}
+        >
+          <CircleLayer
+            id="parkingSpacesLayer"
+            style={{
+              circleRadius: 8,
+              circleColor: '#00C853',
+              circleStrokeWidth: 2,
+              circleStrokeColor: '#FFFFFF',
+            }}
           />
-        ))}
+        </ShapeSource>
       </MapView>
 
       <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
