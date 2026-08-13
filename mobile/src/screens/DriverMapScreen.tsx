@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import MapLibreGL, { MapView, Camera, ShapeSource, CircleLayer } from '@maplibre/maplibre-react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
+import MapLibreGL, { MapView, Camera, ShapeSource, CircleLayer, UserLocation } from '@maplibre/maplibre-react-native';
+import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useUserStore } from '../store/userStore';
@@ -17,6 +18,8 @@ interface ParkingSpace {
   hourly_rate_gbp: number;
 }
 
+// OpenStreetMap tiles are suitable for testing/MVP but should be replaced
+// with a dedicated OSM-based tile provider before significant production traffic.
 const OSM_STYLE = {
   version: 8,
   sources: {
@@ -38,10 +41,27 @@ const OSM_STYLE = {
   ],
 };
 
+const BRIGHTON_COORDS = [-0.137163, 50.822530];
+
 export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
   const [spaces, setSpaces] = useState<ParkingSpace[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<ParkingSpace | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  const [userCoords, setUserCoords] = useState<number[]>(BRIGHTON_COORDS);
+
   const signOut = useUserStore((state) => state.signOut);
+
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setHasLocationPermission(true);
+        let location = await Location.getCurrentPositionAsync({});
+        setUserCoords([location.coords.longitude, location.coords.latitude]);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     fetchActiveSpaces();
@@ -65,6 +85,7 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
   }, []);
 
   const fetchActiveSpaces = async () => {
+    setLoading(true);
     const { data, error } = await supabase
       .from('parking_spaces')
       .select('id, latitude, longitude, title, hourly_rate_gbp')
@@ -74,8 +95,13 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
     if (error) {
       console.error('Error fetching spaces', error);
     } else {
-      setSpaces(data || []);
+      // Safely filter out missing coordinates
+      const validSpaces = (data || []).filter(
+        (space) => space.latitude != null && space.longitude != null
+      );
+      setSpaces(validSpaces);
     }
+    setLoading(false);
   };
 
   const handleMarkerPress = (space: ParkingSpace) => {
@@ -89,7 +115,7 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
       id: space.id,
       geometry: {
         type: 'Point',
-        coordinates: [space.longitude, space.latitude],
+        coordinates: [space.longitude, space.latitude], // MapLibre takes [lng, lat]
       },
       properties: {
         ...space,
@@ -99,39 +125,51 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <MapView
-        style={styles.map}
-        mapStyle={JSON.stringify(OSM_STYLE)}
-        logoEnabled={false}
-      >
-        <Camera
-          defaultSettings={{
-            centerCoordinate: [-0.1278, 51.5074], // London
-            zoomLevel: 12,
-          }}
-        />
-
-        <ShapeSource
-          id="parkingSpaces"
-          shape={features as any}
-          onPress={(event: any) => {
-            const feature = event.features[0];
-            if (feature && feature.properties) {
-              handleMarkerPress(feature.properties as ParkingSpace);
-            }
-          }}
+      {loading && spaces.length === 0 ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#00C853" />
+          <Text style={{ marginTop: 10 }}>Loading live map...</Text>
+        </View>
+      ) : (
+        <MapView
+          style={styles.map}
+          mapStyle={JSON.stringify(OSM_STYLE)}
+          logoEnabled={false}
         >
-          <CircleLayer
-            id="parkingSpacesLayer"
-            style={{
-              circleRadius: 8,
-              circleColor: '#00C853',
-              circleStrokeWidth: 2,
-              circleStrokeColor: '#FFFFFF',
+          <Camera
+            defaultSettings={{
+              centerCoordinate: userCoords, // Defaults to Brighton or device location
+              zoomLevel: 14,
             }}
+            animationDuration={200}
           />
-        </ShapeSource>
-      </MapView>
+
+          {hasLocationPermission && (
+            <UserLocation visible={true} showsUserHeadingIndicator={true} />
+          )}
+
+          <ShapeSource
+            id="parkingSpaces"
+            shape={features as any}
+            onPress={(event: any) => {
+              const feature = event.features[0];
+              if (feature && feature.properties) {
+                handleMarkerPress(feature.properties as ParkingSpace);
+              }
+            }}
+          >
+            <CircleLayer
+              id="parkingSpacesLayer"
+              style={{
+                circleRadius: 8,
+                circleColor: '#00C853',
+                circleStrokeWidth: 2,
+                circleStrokeColor: '#FFFFFF',
+              }}
+            />
+          </ShapeSource>
+        </MapView>
+      )}
 
       <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
         <Text style={styles.logoutText}>Log Out</Text>
@@ -157,6 +195,12 @@ export const DriverMapScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
   },
   map: {
     width: Dimensions.get('window').width,

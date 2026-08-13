@@ -1,0 +1,51 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - '**' # Triggers on all branches for ease of testing
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        working-directory: ./mobile
+        run: npm ci
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }} # Ensure this is configured in GitHub Secrets
+
+      - name: Create .env file for Gradle Build
+        working-directory: ./mobile
+        run: |
+          echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
+
+      - name: Build APK (Local Fast Build using Gradle)
+        working-directory: ./mobile
+        run: |
+          npx expo prebuild --platform android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: livepark-android-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 7
