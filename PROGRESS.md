@@ -21,6 +21,7 @@
 * Integrated Driver and Host screens into functional navigation flows in `App.tsx`.
 * Built Admin Web Panel for approving pending space listings.
 * Ran TypeScript compiler checks on both `mobile` and `admin` to verify basic type safety.
+* Added a GitHub Actions pipeline that verifies the Expo app, builds an installable Android APK, stores it as an Actions artifact, and publishes it as a prerelease download.
 
 ## Current Stage
 * Moving to **Submission**.
